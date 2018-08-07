@@ -53,8 +53,7 @@
  */
 
 #include "mbed.h"
-#include "mbed_config.h"
-#include "FATFileSystem.h"
+#include "LittleFileSystem.h"
 #include "test_env.h"
 #include "fsfat_debug.h"
 #include "fsfat_test.h"
@@ -94,9 +93,11 @@ using namespace utest::v1;
 //SDBlockDevice sd(MBED_CONF_SD_SPI_MOSI, MBED_CONF_SD_SPI_MISO, MBED_CONF_SD_SPI_CLK, MBED_CONF_SD_SPI_CS);
 
 #include "FlashIAPBlockDevice.h"
+#include "SlicingBlockDevice.h"
 
-FlashIAPBlockDevice sd;
-FATFileSystem fs("sd", &sd);
+FlashIAPBlockDevice *flash;
+SlicingBlockDevice *slice;
+LittleFileSystem fs("sd");
 
 #define FSFAT_BASIC_TEST_        fsfat_basic_test_
 #define FSFAT_BASIC_TEST_00      fsfat_basic_test_00
@@ -118,7 +119,8 @@ static const char *sd_file_path = "/sd/out.txt";
 static const int FSFAT_BASIC_DATA_SIZE = 256;
 static char fsfat_basic_msg_g[FSFAT_BASIC_MSG_BUF_SIZE];
 static char fsfat_basic_buffer[1024];
-static const int FSFAT_BASIC_KIB_RW = 128;
+static const int FSFAT_BASIC_KIB_RW = 16;
+static const int MAX_TEST_SIZE = FSFAT_BASIC_KIB_RW * 1024 * 2;
 static Timer fsfat_basic_timer;
 static const char *fsfat_basic_bin_filename = "/sd/testfile.bin";
 static const char *fsfat_basic_bin_filename_test_08 = "testfile.bin";
@@ -141,12 +143,26 @@ control_t fsfat_basic_test_(const size_t call_count)
     (void) call_count;
     int32_t ret = -1;
 
-    /* the allocation_unit of 0 means chanFS will use the default for the card (varies according to capacity). */
-    fs.unmount();
-    ret = fs.format(&sd);
-    FSFAT_TEST_UTEST_MESSAGE(fsfat_basic_msg_g, FSFAT_UTEST_MSG_BUF_SIZE, "%s:Error: failed to format sdcard (ret=%d)\n", __func__, (int) ret);
+    flash = new FlashIAPBlockDevice();
+    ret = flash->init();
+    TEST_ASSERT_EQUAL(0, ret);
+
+    // Use slice of last sectors
+    bd_addr_t slice_addr = flash->size();
+    bd_size_t slice_size = 0;
+    while (slice_size < MAX_TEST_SIZE) {
+        bd_size_t unit_size = flash->get_erase_size(slice_addr - 1);
+        slice_addr -= unit_size;
+        slice_size += unit_size;
+    }
+    slice = new SlicingBlockDevice(flash, slice_addr);
+    slice->init();
+
+    ret = fs.reformat(slice);
+    FSFAT_TEST_UTEST_MESSAGE(fsfat_basic_msg_g, FSFAT_UTEST_MSG_BUF_SIZE, "%s:Error: failed to format device (ret=%d)\n", __func__, (int) ret);
     TEST_ASSERT_MESSAGE(ret == 0, fsfat_basic_msg_g);
-    fs.mount(&sd);
+    fs.mount(slice);
+
     return CaseNext;
 }
 
@@ -803,23 +819,23 @@ static control_t fsfat_basic_test_09()
 
 bool fsfat_basic_test_file_write_fatfs(const char *filename, const int kib_rw)
 {
-    FIL file;
-    FRESULT res = f_open(&file, filename, FA_WRITE | FA_CREATE_ALWAYS);
+    File file;
+    int res = file.open(&fs, filename, O_CREAT | O_WRONLY);
 
     FSFAT_BASIC_MSG(fsfat_basic_msg_g, FSFAT_BASIC_MSG_BUF_SIZE, "%s: Error: failed to open file.\n", __func__);
-    TEST_ASSERT_MESSAGE(res == FR_OK, fsfat_basic_msg_g);
+    TEST_ASSERT_MESSAGE(res == 0, fsfat_basic_msg_g);
 
     int byte_write = 0;
     unsigned int bytes = 0;
     fsfat_basic_timer.start();
     for (int i = 0; i < kib_rw; i++) {
-        res = f_write(&file, fsfat_basic_buffer, sizeof(fsfat_basic_buffer), &bytes);
+        bytes = file.write(fsfat_basic_buffer, sizeof(fsfat_basic_buffer));
         FSFAT_BASIC_MSG(fsfat_basic_msg_g, FSFAT_BASIC_MSG_BUF_SIZE, "%s: Error: failed to write to file.\n", __func__);
-        TEST_ASSERT_MESSAGE(res == FR_OK, fsfat_basic_msg_g);
+        TEST_ASSERT_MESSAGE(res == 0, fsfat_basic_msg_g);
         byte_write++;
     }
     fsfat_basic_timer.stop();
-    f_close(&file);
+    file.close();
 #ifdef FSFAT_DEBUG
     double test_time_sec = fsfat_basic_timer.read_us() / 1000000.0;
     double speed = kib_rw / test_time_sec;
@@ -831,21 +847,21 @@ bool fsfat_basic_test_file_write_fatfs(const char *filename, const int kib_rw)
 
 bool fsfat_basic_test_file_read_fatfs(const char *filename, const int kib_rw)
 {
-    FIL file;
-    FRESULT res = f_open(&file, filename, FA_READ | FA_OPEN_EXISTING);
+    File file;
+    int res = file.open(&fs, filename, O_RDONLY);
 
     FSFAT_BASIC_MSG(fsfat_basic_msg_g, FSFAT_BASIC_MSG_BUF_SIZE, "%s: Error: failed to open file.\n", __func__);
-    TEST_ASSERT_MESSAGE(res == FR_OK, fsfat_basic_msg_g);
+    TEST_ASSERT_MESSAGE(res == 0, fsfat_basic_msg_g);
 
     fsfat_basic_timer.start();
     int byte_read = 0;
     unsigned int bytes = 0;
     do {
-        res = f_read(&file, fsfat_basic_buffer, sizeof(fsfat_basic_buffer), &bytes);
+        bytes = file.read(fsfat_basic_buffer, sizeof(fsfat_basic_buffer));
         byte_read++;
-    } while (res == FR_OK && bytes == sizeof(fsfat_basic_buffer));
+    } while (res == 0 && bytes == sizeof(fsfat_basic_buffer));
     fsfat_basic_timer.stop();
-    f_close(&file);
+    file.close();
 #ifdef FSFAT_DEBUG
     double test_time_sec = fsfat_basic_timer.read_us() / 1000000.0;
     double speed = kib_rw / test_time_sec;

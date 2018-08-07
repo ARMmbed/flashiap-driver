@@ -22,8 +22,7 @@
  */
 
 #include "mbed.h"
-#include "mbed_config.h"
-#include "FATFileSystem.h"
+#include "LittleFileSystem.h"
 #include "fsfat_debug.h"
 #include "fsfat_test.h"
 #include "utest/utest.h"
@@ -76,15 +75,18 @@ using namespace utest::v1;
  */
 
 #include "FlashIAPBlockDevice.h"
+#include "SlicingBlockDevice.h"
 
-FlashIAPBlockDevice sd;
-FATFileSystem fs("sd", &sd);
+FlashIAPBlockDevice *flash;
+SlicingBlockDevice *slice;
+LittleFileSystem fs("sd");
 
 static char fsfat_fopen_utest_msg_g[FSFAT_UTEST_MSG_BUF_SIZE];
 #define FSFAT_FOPEN_TEST_MOUNT_PT_NAME      "sd"
 #define FSFAT_FOPEN_TEST_MOUNT_PT_PATH      "/"FSFAT_FOPEN_TEST_MOUNT_PT_NAME
 #define FSFAT_FOPEN_TEST_WORK_BUF_SIZE_1    64
 #define FSFAT_FOPEN_TEST_FILEPATH_MAX_DEPTH 20
+static const int MAX_TEST_SIZE = 256 * 1024 * 2;
 static const char *sd_badfile_path = "/sd/badfile.txt";
 static const char *sd_testfile_path = "/sd/test.txt";
 
@@ -705,6 +707,8 @@ static const char fsfat_fopen_ascii_illegal_buf_g[] = "\"�'*+,./:;<=>?[\\]|";
  */
 control_t fsfat_fopen_test_06(const size_t call_count)
 {
+// legal in LittleFS
+#if 0
     const char *mnt_pt = FSFAT_FOPEN_TEST_MOUNT_PT_PATH;
     const char *extname = "txt";
     const size_t filename_len = strlen(mnt_pt)+FSFAT_MAX_FILE_BASENAME+strlen(extname)+2;  /* extra 2 chars for '/' and '.' in "/sd/goodfile.txt" */
@@ -737,6 +741,7 @@ control_t fsfat_fopen_test_06(const size_t call_count)
         FSFAT_TEST_UTEST_MESSAGE(fsfat_fopen_utest_msg_g, FSFAT_UTEST_MSG_BUF_SIZE, "%s:Error: created file when filename contains invalid characters (filename=%s, ret=%d).\n", __func__, filename, (int) ret);
         TEST_ASSERT_MESSAGE(ret < 0, fsfat_fopen_utest_msg_g);
     }
+#endif
     return CaseNext;
 }
 
@@ -1267,12 +1272,26 @@ control_t fsfat_fopen_test_00(const size_t call_count)
     (void) call_count;
     int32_t ret = -1;
 
-    /* the allocation_unit of 0 means chanFS will use the default for the card (varies according to capacity). */
-    fs.unmount();
-    ret = fs.format(&sd);
+    flash = new FlashIAPBlockDevice();
+    ret = flash->init();
+    TEST_ASSERT_EQUAL(0, ret);
+
+    // Use slice of last sectors
+    bd_addr_t slice_addr = flash->size();
+    bd_size_t slice_size = 0;
+    while (slice_size < MAX_TEST_SIZE) {
+        bd_size_t unit_size = flash->get_erase_size(slice_addr - 1);
+        slice_addr -= unit_size;
+        slice_size += unit_size;
+    }
+    slice = new SlicingBlockDevice(flash, slice_addr);
+    slice->init();
+
+    ret = fs.reformat(slice);
     FSFAT_TEST_UTEST_MESSAGE(fsfat_fopen_utest_msg_g, FSFAT_UTEST_MSG_BUF_SIZE, "%s:Error: failed to format sdcard (ret=%d)\n", __func__, (int) ret);
     TEST_ASSERT_MESSAGE(ret == 0, fsfat_fopen_utest_msg_g);
-    fs.mount(&sd);
+    fs.mount(slice);
+
     return CaseNext;
 }
 
