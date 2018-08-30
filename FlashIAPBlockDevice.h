@@ -22,6 +22,14 @@
 #include "BlockDevice.h"
 #include <mbed.h>
 
+#ifndef MBED_CONF_FLASHIAP_BLOCK_DEVICE_BASE_ADDRESS
+#error flashiap-block-device.base-address not set
+#endif
+
+#ifndef MBED_CONF_FLASHIAP_BLOCK_DEVICE_SIZE
+#error flashiap-block-device.size not set
+#endif
+
 /** BlockDevice using the FlashIAP API
  *
  *  @code
@@ -31,13 +39,14 @@
  */
 class FlashIAPBlockDevice : public BlockDevice {
 public:
-    /** Creates a FlashIAPBlockDevice **/
-    FlashIAPBlockDevice();
-
-    MBED_DEPRECATED("Please use default constructor instead")
-    FlashIAPBlockDevice(uint32_t address, uint32_t size = 0);
-
-    virtual ~FlashIAPBlockDevice();
+    /** Creates a FlashIAPBlockDevice, starting at the given address and
+     *  with a certain size.
+     *
+     *  @param address  Starting address for the BlockDevice
+     *  @param size     Maximum size allocated to this BlockDevice
+     */
+    FlashIAPBlockDevice(uint32_t address = MBED_CONF_FLASHIAP_BLOCK_DEVICE_BASE_ADDRESS,
+                        uint32_t size = MBED_CONF_FLASHIAP_BLOCK_DEVICE_SIZE);
 
     /** Initialize a block device
      *
