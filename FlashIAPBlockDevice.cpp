@@ -23,6 +23,12 @@
 
 #include <inttypes.h>
 
+/* Started from version 5.10.0 FlashIAPBlockDevice external repo is depricated. 
+   please use the FlashIAPBlockDevice component inside mbed-os.*/
+#if defined(MBED_MAJOR_VERSION) && MBED_MAJOR_VERSION >= 5 && (MBED_VERSION >= MBED_ENCODE_VERSION(5,10,0))
+#error "Started from version 5.10.0 FlashIAPBlockDevice external repo is depricated. please use the FlashIAPBlockDevice component inside mbed-os."
+#endif
+
 #define FLASHIAP_READ_SIZE 1
 
 // Debug available
