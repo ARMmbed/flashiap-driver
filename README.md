@@ -1,3 +1,7 @@
+# Warning
+Starting from mbed-os 5.10 this repository is deprecated. 
+Please refer to mbed-os 5.10 [documentation](https://github.com/ARMmbed/mbed-os-5-docs/blob/development/docs/api/storage/FlashIAPBlockDevice.md) and [code](https://github.com/ARMmbed/mbed-os/tree/master/components/storage/blockdevice/COMPONENT_FLASHIAP) for more detail on how to enable FLASHIAP support.
+
 # Block Device driver build on top of FlashIAP API
 
 ## Warning 
